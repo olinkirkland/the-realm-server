@@ -1,5 +1,5 @@
 import { uid } from 'uid';
-import bcrypt from 'bcrypt';
+import bcrypt, { hash } from 'bcrypt';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -8,6 +8,8 @@ import mongoose, { connect } from 'mongoose';
 import lag from '../middlewares/lag';
 import { User } from '../schemas/user';
 import { Color, log } from '../util';
+import authenticate from '../middlewares/authenticate';
+import identify from '../middlewares/identify';
 
 /**
  * Config
@@ -80,7 +82,8 @@ app.post('/login', async (req, res) => {
   );
 
   activeRefreshTokens.push(refreshToken);
-  log(`Refresh token added: ${refreshToken}`, Color.MAGENTA);
+  const shortToken = makeShortToken(refreshToken);
+  log(`Refresh token added: ${shortToken}`, Color.MAGENTA);
 
   const accessToken = jwt.sign(
     { id: user.id },
@@ -108,8 +111,10 @@ app.post('/refresh', (req, res) => {
   });
 });
 
-app.delete('/logout', (req, res) => {  
+app.delete('/logout', (req, res) => {
   const { refreshToken } = req.body;
+  const shortToken = makeShortToken(refreshToken);
+
   if (!refreshToken) return res.status(400).send('Bad request');
   if (!activeRefreshTokens.includes(refreshToken))
     return res.status(403).send('Refresh token not found');
@@ -117,8 +122,14 @@ app.delete('/logout', (req, res) => {
   activeRefreshTokens = activeRefreshTokens.filter(
     (token) => token !== refreshToken
   );
-  log(`Refresh token removed: ${refreshToken}`, Color.MAGENTA);
+  log(`Refresh token removed: ${shortToken}`, Color.MAGENTA);
   res.status(204).send('Logged out');
+});
+
+app.get('/account', authenticate, identify, (req: any, res) => {
+  const user = req.user;
+  const accountData = { id: user.id, username: user.username };
+  res.status(200).send(accountData);
 });
 
 /**
@@ -130,4 +141,12 @@ function startServer() {
   app.listen(port, () => {
     log(`Server is listening on port ${port}`, Color.BLUE);
   });
+}
+
+/**
+ * Helpers
+ */
+
+function makeShortToken(token: string) {
+  return token.split('.')[2].substring(0, 6);
 }
